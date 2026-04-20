@@ -10,6 +10,20 @@ export interface Game {
   coverUrl: string | null;
   heroUrl: string | null;
   logoUrl: string | null;
+  coverLocal: string | null;
+  heroLocal: string | null;
+  logoLocal: string | null;
   sizeBytes: number;
-  playtimeMinutes: number | null;
+  playtimeMinutes: number;
+}
+
+export interface ScanProgress {
+  stage: string;
+  done: number;
+  total: number;
+}
+
+export interface PlaytimeUpdate {
+  gameId: string;
+  playtimeMinutes: number;
 }
