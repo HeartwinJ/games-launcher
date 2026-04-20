@@ -11,4 +11,5 @@ export interface Game {
   heroUrl: string | null;
   logoUrl: string | null;
   sizeBytes: number;
+  playtimeMinutes: number | null;
 }

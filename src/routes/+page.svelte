@@ -55,7 +55,6 @@
   }
 
   function openSettings() {
-    // TODO: settings panel.
     console.log("settings: coming soon");
   }
 
@@ -105,6 +104,14 @@
     return `${mb.toFixed(0)} MB`;
   }
 
+  function formatPlaytime(mins: number | null): string {
+    if (mins == null || mins === 0) return "—";
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  }
+
   function initial(name: string) {
     return (name.trim()[0] ?? "?").toUpperCase();
   }
@@ -113,11 +120,6 @@
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
     return h % 360;
-  }
-
-  function shortPath(p: string) {
-    if (!p) return "—";
-    return p.length > 56 ? "…" + p.slice(p.length - 55) : p;
   }
 
   onMount(() => {
@@ -162,7 +164,7 @@
       <p>Install a game through Steam or the Epic Games Launcher, then relaunch.</p>
     </div>
   {:else if current}
-    <!-- ========== Hero stage (top half) ========== -->
+    <!-- ========== Hero stage ========== -->
     <section class="hero" style="--hue: {hueFor(current.id)}">
       {#key current.id}
         {#if current.heroUrl}
@@ -201,23 +203,20 @@
           {/key}
         </div>
 
-        <div class="stats">
-          <div class="stat source-pill source-{current.source.toLowerCase()}">
-            <span class="src-letter">{current.source[0]}</span>
-            <span class="src-label">{current.source}</span>
+        <!-- Minimal glass stats capsule: [store] | [size] | [playtime] -->
+        <div class="stats-capsule">
+          <div class="stat store" title={current.source}>
+            <span class="store-mark store-{current.source.toLowerCase()}">
+              {current.source[0]}
+            </span>
           </div>
 
+          <div class="divider"></div>
+
           <div class="stat">
-            <svg
-              class="icon"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"
+              fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round">
               <ellipse cx="12" cy="5.5" rx="8" ry="2.5" />
               <path d="M4 5.5v13c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-13" />
               <path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5" />
@@ -225,43 +224,38 @@
             <span>{formatSize(current.sizeBytes)}</span>
           </div>
 
-          <div class="stat stat-path" title={current.installPath}>
-            <svg
-              class="icon"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.7"
-              stroke-linejoin="round"
-            >
-              <path
-                d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z"
-              />
+          <div class="divider"></div>
+
+          <div class="stat">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"
+              fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
             </svg>
-            <span class="path-text">{shortPath(current.installPath)}</span>
+            <span>{formatPlaytime(current.playtimeMinutes)}</span>
           </div>
         </div>
 
         <div class="actions">
           <button
-            class="play"
+            class="btn btn-play"
             class:launching
             onclick={() => launch()}
             disabled={launching}
           >
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
               <path d="M8 5v14l11-7z" fill="currentColor" />
             </svg>
             <span>{launching ? "Launching…" : "Play"}</span>
           </button>
           <button
-            class="secondary"
+            class="btn btn-icon"
             onclick={openSettings}
             title="Settings (coming soon)"
             aria-label="Settings"
           >
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
               fill="none" stroke="currentColor" stroke-width="1.7"
               stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3" />
@@ -272,7 +266,7 @@
       </div>
     </section>
 
-    <!-- ========== Carousel (bottom half) ========== -->
+    <!-- ========== Carousel ========== -->
     <section class="carousel-wrap">
       <div class="carousel-edge left"></div>
       <div class="carousel" role="listbox" aria-label="Installed games">
@@ -357,15 +351,14 @@
     animation: heroZoom 18s ease-in-out both;
   }
   .hero-bg.hero-bg-cover {
-    /* When we only have a portrait cover, blur-stretch it so it reads as ambient. */
     filter: blur(40px) saturate(130%);
     transform: scale(1.3);
     opacity: 0.75;
   }
   .hero-bg-gradient {
     background:
-      radial-gradient(70% 80% at 30% 20%, hsl(var(--hue) 70% 55% / 0.7), transparent 60%),
-      radial-gradient(70% 70% at 85% 80%, hsl(calc(var(--hue) + 60) 70% 50% / 0.65), transparent 65%),
+      radial-gradient(70% 80% at 30% 20%, hsl(var(--hue) 60% 45% / 0.55), transparent 60%),
+      radial-gradient(70% 70% at 85% 80%, hsl(calc(var(--hue) + 60) 60% 40% / 0.5), transparent 65%),
       #0b0d17;
   }
   @keyframes heroZoom {
@@ -373,7 +366,6 @@
     to { transform: scale(1.08); }
   }
 
-  /* Left-to-right scrim for readability of overlaid content. */
   .scrim-left {
     position: absolute;
     inset: 0;
@@ -403,9 +395,9 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    gap: 18px;
+    gap: 20px;
     padding: 32px 40px 40px;
-    max-width: min(620px, 55%);
+    max-width: min(640px, 55%);
   }
 
   /* Logo area */
@@ -446,13 +438,22 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  /* Icon-led stats row */
-  .stats {
-    display: flex;
+  /* ========== Glass stats capsule ========== */
+  .stats-capsule {
+    align-self: flex-start;
+    display: inline-flex;
     align-items: center;
     gap: 14px;
-    flex-wrap: wrap;
-    color: rgba(236, 237, 245, 0.85);
+    padding: 6px 16px 6px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 8px 24px rgba(0, 0, 0, 0.25);
+    color: rgba(236, 237, 245, 0.88);
     animation: rise 0.45s ease both;
     animation-delay: 30ms;
   }
@@ -465,113 +466,99 @@
     white-space: nowrap;
   }
   .stat .icon {
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     color: rgba(236, 237, 245, 0.65);
   }
-  .stat-path {
-    max-width: 100%;
-    overflow: hidden;
-  }
-  .path-text {
-    font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-    font-size: 12px;
-    color: rgba(236, 237, 245, 0.68);
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .divider {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.12);
   }
 
-  .source-pill {
-    gap: 8px;
-    padding: 4px 10px 4px 4px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(20, 22, 34, 0.55);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-  .source-pill .src-letter {
+  /* Store mark: single letter in a minimal circle */
+  .store-mark {
     display: inline-grid;
     place-items: center;
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     font-size: 11px;
     font-weight: 800;
-    color: #fff;
+    letter-spacing: 0;
   }
-  .source-pill .src-label {
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    color: rgba(255, 255, 255, 0.9);
+  .store-mark.store-steam {
+    color: #8ec6ff;
+    background: rgba(110, 180, 246, 0.14);
+    border: 1px solid rgba(110, 180, 246, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
-  .source-steam .src-letter {
-    background: linear-gradient(135deg, #1a9fff, #00b4d8);
-    box-shadow: 0 0 12px rgba(26, 159, 255, 0.5);
-  }
-  .source-epic .src-letter {
-    background: linear-gradient(135deg, #2a2a2a, #555);
-    box-shadow: 0 0 12px rgba(255, 255, 255, 0.12);
+  .store-mark.store-epic {
+    color: #f0f0f0;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
-  /* Actions */
+  /* ========== Glass buttons ========== */
   .actions {
     display: flex;
     gap: 10px;
     animation: rise 0.5s ease both;
     animation-delay: 60ms;
   }
-  .play {
+  .btn {
     all: unset;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    padding: 0 28px;
     height: 52px;
-    min-width: 200px;
     border-radius: 14px;
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: 0.02em;
-    color: #fff;
+    font-weight: 600;
+    font-size: 14.5px;
+    letter-spacing: 0.01em;
+    color: rgba(255, 255, 255, 0.95);
     cursor: pointer;
-    background: linear-gradient(135deg, #8b7bff 0%, #5a7cff 55%, #1dd3da 100%);
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.04)
+    );
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     box-shadow:
-      0 10px 30px rgba(90, 124, 255, 0.45),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 10px 28px rgba(0, 0, 0, 0.28);
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.15s ease;
   }
-  .play:hover { filter: brightness(1.08); transform: translateY(-1px); }
-  .play:active { transform: translateY(0) scale(0.99); }
-  .play:disabled { opacity: 0.85; cursor: default; transform: none; }
-  .play.launching { animation: launchPulse 0.6s ease; }
+  .btn:hover {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.16),
+      rgba(255, 255, 255, 0.08)
+    );
+    border-color: rgba(255, 255, 255, 0.22);
+    transform: translateY(-1px);
+  }
+  .btn:active { transform: translateY(0) scale(0.99); }
+  .btn:disabled { opacity: 0.75; cursor: default; transform: none; }
+
+  .btn-play {
+    min-width: 220px;
+    padding: 0 28px;
+  }
+  .btn-play.launching { animation: launchPulse 0.6s ease; }
   @keyframes launchPulse {
     0% { filter: brightness(1); }
-    50% { filter: brightness(1.4); box-shadow: 0 14px 38px rgba(90, 124, 255, 0.7); }
+    50% { filter: brightness(1.35); }
     100% { filter: brightness(1); }
   }
 
-  .secondary {
-    all: unset;
+  .btn-icon {
     width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    color: rgba(236, 237, 245, 0.85);
-    background: rgba(20, 22, 34, 0.55);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
-  }
-  .secondary:hover {
-    background: rgba(40, 44, 62, 0.8);
-    color: #fff;
-    transform: translateY(-1px);
+    padding: 0;
   }
 
   /* ========== Carousel ========== */
@@ -633,8 +620,8 @@
     overflow: hidden;
     background: linear-gradient(
       160deg,
-      hsl(var(--hue, 250) 60% 22%),
-      hsl(calc(var(--hue, 250) + 50) 60% 14%)
+      hsl(var(--hue, 250) 40% 20%),
+      hsl(calc(var(--hue, 250) + 50) 40% 12%)
     );
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
     transition: box-shadow 0.22s ease;
@@ -657,7 +644,7 @@
     text-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
     background: radial-gradient(
       circle at 30% 20%,
-      hsl(var(--hue, 250) 80% 55% / 0.55),
+      hsl(var(--hue, 250) 60% 45% / 0.45),
       transparent 60%
     );
   }
@@ -666,7 +653,7 @@
   .card-name {
     font-size: 12px;
     font-weight: 500;
-    color: rgba(236, 237, 245, 0.72);
+    color: rgba(236, 237, 245, 0.7);
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
@@ -680,10 +667,10 @@
   }
   .card.selected .art {
     box-shadow:
-      0 0 0 2px rgba(255, 255, 255, 0.92),
-      0 0 0 5px hsl(var(--hue, 250) 90% 65% / 0.55),
-      0 24px 50px rgba(0, 0, 0, 0.55),
-      0 0 40px hsl(var(--hue, 250) 90% 65% / 0.35);
+      0 0 0 2px rgba(255, 255, 255, 0.95),
+      0 0 0 5px rgba(255, 255, 255, 0.08),
+      0 22px 50px rgba(0, 0, 0, 0.55),
+      0 0 30px rgba(255, 255, 255, 0.08);
   }
   .card.selected .card-name { color: #fff; }
 
@@ -694,7 +681,7 @@
     height: 42px;
     border-radius: 50%;
     border: 3px solid rgba(255, 255, 255, 0.08);
-    border-top-color: rgba(139, 123, 255, 0.9);
+    border-top-color: rgba(255, 255, 255, 0.8);
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }

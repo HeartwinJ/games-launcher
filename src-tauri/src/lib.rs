@@ -1,9 +1,12 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
+use winreg::enums::HKEY_CURRENT_USER;
+use winreg::RegKey;
 
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -18,9 +21,10 @@ pub struct Game {
     pub hero_url: Option<String>,
     pub logo_url: Option<String>,
     pub size_bytes: u64,
+    pub playtime_minutes: Option<u64>,
 }
 
-fn steam_cdn(appid: u64, asset: &str) -> String {
+fn steam_cdn(appid: &str, asset: &str) -> String {
     format!(
         "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/{}",
         appid, asset
@@ -55,7 +59,93 @@ fn is_excluded_steam_entry(appid: u64, name: &str) -> bool {
         || lower.starts_with("steam linux runtime")
 }
 
-// ========== Epic art lookup ==========
+// ========== Steam local playtime ==========
+
+fn steam_install_path() -> Option<PathBuf> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey("Software\\Valve\\Steam").ok()?;
+    let path: String = key.get_value("SteamPath").ok()?;
+    let pb = PathBuf::from(path);
+    if pb.exists() {
+        Some(pb)
+    } else {
+        None
+    }
+}
+
+/// Read all per-user `localconfig.vdf` files and return a map of
+/// Steam appid -> lifetime playtime in minutes. Takes the max across users.
+fn load_steam_playtimes() -> HashMap<u64, u64> {
+    let mut out: HashMap<u64, u64> = HashMap::new();
+    let Some(steam) = steam_install_path() else {
+        return out;
+    };
+    let userdata = steam.join("userdata");
+    let Ok(entries) = std::fs::read_dir(&userdata) else {
+        return out;
+    };
+
+    for entry in entries.flatten() {
+        let config_path = entry.path().join("config").join("localconfig.vdf");
+        if !config_path.is_file() {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&config_path) else {
+            continue;
+        };
+        let Ok(vdf) = keyvalues_parser::Vdf::parse(&content) else {
+            continue;
+        };
+        walk_for_playtimes(&vdf.value, &mut out);
+    }
+
+    out
+}
+
+fn walk_for_playtimes(value: &keyvalues_parser::Value, into: &mut HashMap<u64, u64>) {
+    use keyvalues_parser::Value;
+    let Value::Obj(obj) = value else {
+        return;
+    };
+    for (k, values) in obj.iter() {
+        if k.eq_ignore_ascii_case("apps") {
+            for v in values {
+                let Value::Obj(apps) = v else {
+                    continue;
+                };
+                for (appid_s, appid_values) in apps.iter() {
+                    let Ok(appid) = appid_s.parse::<u64>() else {
+                        continue;
+                    };
+                    for av in appid_values {
+                        let Value::Obj(fields) = av else {
+                            continue;
+                        };
+                        for (fk, fvs) in fields.iter() {
+                            if fk.eq_ignore_ascii_case("Playtime") {
+                                for fv in fvs {
+                                    if let Value::Str(s) = fv {
+                                        if let Ok(m) = s.parse::<u64>() {
+                                            into.entry(appid)
+                                                .and_modify(|e| *e = (*e).max(m))
+                                                .or_insert(m);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            for v in values {
+                walk_for_playtimes(v, into);
+            }
+        }
+    }
+}
+
+// ========== Epic art lookup via Steam Community search ==========
 
 #[derive(Clone, Debug, Default)]
 struct EpicArt {
@@ -70,19 +160,16 @@ fn epic_cache() -> &'static Mutex<HashMap<String, EpicArt>> {
     EPIC_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-// Extract first image URL matching any of the given Epic keyImage types.
-fn pick_key_image(images: Option<&serde_json::Value>, types: &[&str]) -> Option<String> {
-    let arr = images?.as_array()?;
-    for t in types {
-        for img in arr {
-            if img.get("type").and_then(|v| v.as_str()) == Some(*t) {
-                if let Some(url) = img.get("url").and_then(|v| v.as_str()) {
-                    return Some(url.to_string());
-                }
-            }
-        }
-    }
-    None
+fn normalize_title(s: &str) -> String {
+    let stripped: String = s
+        .chars()
+        .filter(|c| !matches!(*c, '\u{2122}' | '\u{00AE}' | '\u{00A9}'))
+        .collect();
+    stripped
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 async fn fetch_epic_art(client: &reqwest::Client, name: &str) -> EpicArt {
@@ -93,49 +180,28 @@ async fn fetch_epic_art(client: &reqwest::Client, name: &str) -> EpicArt {
         }
     }
 
-    let body = serde_json::json!({
-        "query": "query q($k: String!) { Catalog { searchStore(keywords: $k, country: \"US\", locale: \"en-US\", count: 5) { elements { title id namespace keyImages { type url } } } } }",
-        "variables": { "k": name }
-    });
+    let url = format!(
+        "https://steamcommunity.com/actions/SearchApps/{}",
+        urlencoding::encode(name)
+    );
 
-    let art = match client
-        .post("https://graphql.epicgames.com/graphql")
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(resp) => match resp.json::<serde_json::Value>().await {
-            Ok(json) => {
-                let elements = json.pointer("/data/Catalog/searchStore/elements");
-                // Prefer an element whose title case-insensitively matches the
-                // search name; otherwise fall back to the first element.
-                let picked = elements.and_then(|v| v.as_array()).and_then(|arr| {
-                    let lname = name.to_lowercase();
-                    arr.iter()
-                        .find(|el| {
-                            el.get("title")
-                                .and_then(|t| t.as_str())
-                                .map(|s| s.to_lowercase() == lname)
-                                .unwrap_or(false)
-                        })
-                        .or_else(|| arr.first())
+    let art = match client.get(&url).send().await {
+        Ok(resp) => match resp.json::<Vec<serde_json::Value>>().await {
+            Ok(results) => {
+                let target = normalize_title(name);
+                let matched = results.iter().find(|r| {
+                    r.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| normalize_title(s) == target)
+                        .unwrap_or(false)
                 });
-                let images = picked.and_then(|e| e.get("keyImages"));
-                EpicArt {
-                    cover: pick_key_image(
-                        images,
-                        &["OfferImageTall", "DieselStoreFrontTall", "Thumbnail", "VaultClosed"],
-                    ),
-                    hero: pick_key_image(
-                        images,
-                        &[
-                            "OfferImageWide",
-                            "DieselStoreFrontWide",
-                            "DieselGameBoxWide",
-                            "Featured",
-                        ],
-                    ),
-                    logo: pick_key_image(images, &["ProductLogo", "AndroidIcon"]),
+                match matched.and_then(|m| m.get("appid")).and_then(|a| a.as_str()) {
+                    Some(appid) if !appid.is_empty() => EpicArt {
+                        cover: Some(steam_cdn(appid, "library_600x900.jpg")),
+                        hero: Some(steam_cdn(appid, "library_hero.jpg")),
+                        logo: Some(steam_cdn(appid, "logo.png")),
+                    },
+                    _ => EpicArt::default(),
                 }
             }
             Err(_) => EpicArt::default(),
@@ -152,12 +218,15 @@ async fn fetch_epic_art(client: &reqwest::Client, name: &str) -> EpicArt {
 
 #[tauri::command]
 async fn list_games() -> Result<Vec<Game>, String> {
-    let detected = tauri::async_runtime::spawn_blocking(game_detector::find_all_games)
-        .await
-        .map_err(|e| format!("detection task panicked: {e}"))?;
+    let (detected, playtimes) = tauri::async_runtime::spawn_blocking(|| {
+        let detected = game_detector::find_all_games();
+        let playtimes = load_steam_playtimes();
+        (detected, playtimes)
+    })
+    .await
+    .map_err(|e| format!("detection task panicked: {e}"))?;
 
     let mut games: Vec<Game> = Vec::new();
-    // (index in `games`, search name) for each Epic entry that needs art lookup.
     let mut epic_lookups: Vec<(usize, String)> = Vec::new();
 
     for entry in detected {
@@ -166,17 +235,19 @@ async fn list_games() -> Result<Vec<Game>, String> {
                 if is_excluded_steam_entry(app.appid, &app.name) {
                     continue;
                 }
+                let appid = app.appid.to_string();
                 games.push(Game {
                     id: format!("steam:{}", app.appid),
                     name: app.name.clone(),
                     source: "Steam",
-                    app_id: app.appid.to_string(),
+                    app_id: appid.clone(),
                     install_path: app.game_path.clone(),
                     launch_url: format!("steam://rungameid/{}", app.appid),
-                    cover_url: Some(steam_cdn(app.appid, "library_600x900.jpg")),
-                    hero_url: Some(steam_cdn(app.appid, "library_hero.jpg")),
-                    logo_url: Some(steam_cdn(app.appid, "logo.png")),
+                    cover_url: Some(steam_cdn(&appid, "library_600x900.jpg")),
+                    hero_url: Some(steam_cdn(&appid, "library_hero.jpg")),
+                    logo_url: Some(steam_cdn(&appid, "logo.png")),
                     size_bytes: app.SizeOnDisk as u64,
+                    playtime_minutes: playtimes.get(&app.appid).copied(),
                 });
             }
             game_detector::InstalledGame::EpicGames(m) => {
@@ -206,17 +277,17 @@ async fn list_games() -> Result<Vec<Game>, String> {
                     hero_url: None,
                     logo_url: None,
                     size_bytes: m.install_size.max(0) as u64,
+                    playtime_minutes: None,
                 });
             }
             _ => {}
         }
     }
 
-    // Concurrently fetch artwork for Epic games from the public store GraphQL.
     if !epic_lookups.is_empty() {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(6))
-            .user_agent("games-launcher/0.1 (+https://github.com/)")
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) games-launcher/0.1")
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 

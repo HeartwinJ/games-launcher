@@ -20,3 +20,6 @@ serde_json = "1"
 game-detector = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["sync"] }
+urlencoding = "2"
+keyvalues-parser = "0.2"
+winreg = "0.52"
