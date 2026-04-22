@@ -7,7 +7,7 @@ import type { Game, PageName, Prefs, ScanProgress } from "./types";
  */
 export const app = $state({
   games: [] as Game[],
-  prefs: { showSteam: true, showEpic: true } as Prefs,
+  prefs: { showSteam: true, showEpic: true, fullscreen: true } as Prefs,
   scanning: true,
   loading: true,
   progress: { stage: "Starting up", done: 0, total: 0 } as ScanProgress,

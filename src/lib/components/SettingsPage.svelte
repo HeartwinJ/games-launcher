@@ -42,6 +42,20 @@
       console.error("open_data_folder failed:", e);
     }
   }
+
+  async function toggleFullscreen() {
+    const newValue = !app.prefs.fullscreen;
+    // Optimistic flip so the toggle reacts immediately.
+    app.prefs = { ...app.prefs, fullscreen: newValue };
+    try {
+      // Applies the window state AND persists the pref in one round-trip.
+      await invoke("set_fullscreen", { enabled: newValue });
+    } catch (e) {
+      // Revert on failure so the UI doesn't lie.
+      app.prefs = { ...app.prefs, fullscreen: !newValue };
+      console.error("set_fullscreen failed:", e);
+    }
+  }
 </script>
 
 <div class="page">
@@ -89,6 +103,39 @@
           <div class="tg-sub">{app.prefs.showEpic ? "Visible" : "Hidden"}</div>
         </div>
         <div class="switch" class:switch-on={app.prefs.showEpic}>
+          <div class="knob"></div>
+        </div>
+      </button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Window</h2>
+    <p class="muted">Toggle applies immediately and is remembered for next launch.</p>
+
+    <div class="toggles">
+      <button
+        class="toggle"
+        class:on={app.prefs.fullscreen}
+        onclick={toggleFullscreen}
+      >
+        <span class="row-icon">
+          <svg viewBox="0 0 24 24" class="glyph" aria-hidden="true"
+            fill="none" stroke="currentColor" stroke-width="1.7"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+            <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+            <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+            <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+        </span>
+        <div class="tg-text">
+          <div class="tg-title">Fullscreen</div>
+          <div class="tg-sub">
+            {app.prefs.fullscreen ? "On" : "Off"}
+          </div>
+        </div>
+        <div class="switch" class:switch-on={app.prefs.fullscreen}>
           <div class="knob"></div>
         </div>
       </button>
@@ -247,6 +294,21 @@
   .store-mark.store-epic {
     background: #2a2a2a;
     border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .row-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    color: rgba(236, 237, 245, 0.8);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .row-icon .glyph {
+    width: 18px;
+    height: 18px;
   }
 
   .tg-text { display: grid; gap: 2px; }

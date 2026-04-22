@@ -56,6 +56,7 @@ struct PlaytimeUpdate {
 struct Prefs {
     show_steam: bool,
     show_epic: bool,
+    fullscreen: bool,
 }
 
 pub struct AppStateInner {
@@ -1090,9 +1091,14 @@ async fn get_prefs(state: State<'_, AppStateInner>) -> Result<Prefs, String> {
             .map_err(|e| e.to_string())?
             .map(|v| v != "0")
             .unwrap_or(true);
+        let fullscreen = db_get_meta(&conn, "fullscreen")
+            .map_err(|e| e.to_string())?
+            .map(|v| v != "0")
+            .unwrap_or(true);
         Ok(Prefs {
             show_steam,
             show_epic,
+            fullscreen,
         })
     })
     .await
@@ -1109,6 +1115,27 @@ async fn set_pref(
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let conn = db.lock().unwrap();
         db_set_meta(&conn, &key, &value).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("db task panicked: {e}"))?
+}
+
+#[tauri::command]
+async fn set_fullscreen(
+    enabled: bool,
+    app: AppHandle,
+    state: State<'_, AppStateInner>,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window
+            .set_fullscreen(enabled)
+            .map_err(|e| format!("set_fullscreen failed: {e}"))?;
+    }
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = db.lock().unwrap();
+        db_set_meta(&conn, "fullscreen", if enabled { "1" } else { "0" })
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("db task panicked: {e}"))?
@@ -1131,6 +1158,20 @@ pub fn run() {
             let conn = Connection::open(&db_path)?;
             init_schema(&conn)?;
             close_orphan_sessions(&conn)?;
+
+            // Apply window state from stored prefs (defaults to fullscreen
+            // if no pref set yet). Config has `visible: false` so we can
+            // set fullscreen before the window ever paints, avoiding a
+            // windowed flash.
+            let fullscreen = db_get_meta(&conn, "fullscreen")
+                .ok()
+                .flatten()
+                .map(|v| v != "0")
+                .unwrap_or(true);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_fullscreen(fullscreen);
+                let _ = window.show();
+            }
 
             let http = reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
@@ -1158,7 +1199,8 @@ pub fn run() {
             uninstall_game,
             open_data_folder,
             get_prefs,
-            set_pref
+            set_pref,
+            set_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

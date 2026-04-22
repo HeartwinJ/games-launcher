@@ -31,6 +31,7 @@ export interface PlaytimeUpdate {
 export interface Prefs {
   showSteam: boolean;
   showEpic: boolean;
+  fullscreen: boolean;
 }
 
 export type PageName = "home" | "settings";
