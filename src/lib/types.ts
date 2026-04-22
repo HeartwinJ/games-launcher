@@ -27,3 +27,10 @@ export interface PlaytimeUpdate {
   gameId: string;
   playtimeMinutes: number;
 }
+
+export interface Prefs {
+  showSteam: boolean;
+  showEpic: boolean;
+}
+
+export type PageName = "home" | "settings";

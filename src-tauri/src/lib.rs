@@ -51,6 +51,13 @@ struct PlaytimeUpdate {
     playtime_minutes: u64,
 }
 
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Prefs {
+    show_steam: bool,
+    show_epic: bool,
+}
+
 pub struct AppStateInner {
     pub db: Arc<Mutex<Connection>>,
     pub assets_dir: PathBuf,
@@ -256,6 +263,12 @@ fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         );
         "#,
     )?;
+    // Idempotent migrations. ALTER TABLE ADD COLUMN fails after the first
+    // run — we swallow the "duplicate column" error.
+    let _ = conn.execute(
+        "ALTER TABLE games ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
     Ok(())
 }
 
@@ -387,7 +400,7 @@ fn db_list_games(conn: &Connection) -> rusqlite::Result<Vec<Game>> {
                            WHERE game_id = g.id AND duration_seconds IS NOT NULL), 0)
                   AS total_seconds
            FROM games g
-          WHERE g.removed = 0
+          WHERE g.removed = 0 AND g.hidden = 0
           ORDER BY LOWER(g.name)",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -974,6 +987,133 @@ async fn launch_game(
     Ok(())
 }
 
+#[tauri::command]
+async fn hide_game(id: String, state: State<'_, AppStateInner>) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = db.lock().unwrap();
+        conn.execute("UPDATE games SET hidden = 1 WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("db task panicked: {e}"))?
+}
+
+#[tauri::command]
+async fn reset_playtime(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppStateInner>,
+) -> Result<(), String> {
+    let id_for_db = id.clone();
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = db.lock().unwrap();
+        conn.execute(
+            "DELETE FROM play_sessions WHERE game_id = ?1",
+            params![id_for_db],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("db task panicked: {e}"))??;
+
+    let _ = app.emit(
+        "playtime:updated",
+        PlaytimeUpdate {
+            game_id: id,
+            playtime_minutes: 0,
+        },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+async fn uninstall_game(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppStateInner>,
+) -> Result<(), String> {
+    let game = {
+        let db = state.db.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let conn = db.lock().unwrap();
+            db_get_game(&conn, &id).map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| format!("db task panicked: {e}"))??
+        .ok_or_else(|| "game not found".to_string())?
+    };
+    let url = match game.source.as_str() {
+        "Steam" => format!("steam://uninstall/{}", game.app_id),
+        "Epic" => format!(
+            "com.epicgames.launcher://apps/{}?action=uninstall",
+            game.app_id
+        ),
+        other => return Err(format!("unknown source: {}", other)),
+    };
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("uninstall failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_data_folder(
+    app: AppHandle,
+    state: State<'_, AppStateInner>,
+) -> Result<(), String> {
+    let path = state
+        .assets_dir
+        .parent()
+        .ok_or_else(|| "no app data parent".to_string())?
+        .to_string_lossy()
+        .to_string();
+    app.opener()
+        .open_path(&path, None::<&str>)
+        .map_err(|e| format!("open path failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_prefs(state: State<'_, AppStateInner>) -> Result<Prefs, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Prefs, String> {
+        let conn = db.lock().unwrap();
+        let show_steam = db_get_meta(&conn, "show_steam")
+            .map_err(|e| e.to_string())?
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        let show_epic = db_get_meta(&conn, "show_epic")
+            .map_err(|e| e.to_string())?
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        Ok(Prefs {
+            show_steam,
+            show_epic,
+        })
+    })
+    .await
+    .map_err(|e| format!("db task panicked: {e}"))?
+}
+
+#[tauri::command]
+async fn set_pref(
+    key: String,
+    value: String,
+    state: State<'_, AppStateInner>,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = db.lock().unwrap();
+        db_set_meta(&conn, &key, &value).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("db task panicked: {e}"))?
+}
+
 // ============================================================================
 // Entry
 // ============================================================================
@@ -1009,7 +1149,17 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![init_scan, list_games, launch_game])
+        .invoke_handler(tauri::generate_handler![
+            init_scan,
+            list_games,
+            launch_game,
+            hide_game,
+            reset_playtime,
+            uninstall_game,
+            open_data_folder,
+            get_prefs,
+            set_pref
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
