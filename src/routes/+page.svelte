@@ -29,6 +29,102 @@
   let launching = $state(false);
 
   let cardEls: HTMLButtonElement[] = [];
+  let playBtnEl: HTMLButtonElement | undefined = $state();
+
+  // ---------- Spatial focus (TV-style) ----------
+  //
+  // Generic 2D focus navigator over every enabled button inside <main>.
+  // Picks the nearest candidate in the requested direction using each
+  // element's bounding rect — no hardcoded groups, works for any number
+  // of buttons / cards.
+
+  type Dir = "up" | "down" | "left" | "right";
+
+  function focusables(): HTMLElement[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>("main button:not([disabled])"),
+    ).filter((el) => el.offsetParent !== null);
+  }
+
+  function navigate(dir: Dir) {
+    const all = focusables();
+    if (all.length === 0) return;
+
+    const current = document.activeElement;
+    // No valid current focus → land on the carousel's current card.
+    if (
+      !(current instanceof HTMLElement) ||
+      !(current instanceof HTMLButtonElement) ||
+      current.disabled ||
+      !all.includes(current)
+    ) {
+      const fallback = cardEls[selected] ?? all[0];
+      fallback.focus({ preventScroll: true });
+      fallback.scrollIntoView({
+        block: "nearest",
+        inline: "center",
+        behavior: "smooth",
+      });
+      return;
+    }
+
+    const cur = current.getBoundingClientRect();
+    const cxCur = cur.left + cur.width / 2;
+    const cyCur = cur.top + cur.height / 2;
+
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+
+    for (const el of all) {
+      if (el === current) continue;
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const dx = cx - cxCur;
+      const dy = cy - cyCur;
+
+      let primary: number;
+      let perp: number;
+      switch (dir) {
+        case "up":
+          if (dy >= -1) continue;
+          primary = -dy;
+          perp = Math.abs(dx);
+          break;
+        case "down":
+          if (dy <= 1) continue;
+          primary = dy;
+          perp = Math.abs(dx);
+          break;
+        case "left":
+          if (dx >= -1) continue;
+          primary = -dx;
+          perp = Math.abs(dy);
+          break;
+        case "right":
+          if (dx <= 1) continue;
+          primary = dx;
+          perp = Math.abs(dy);
+          break;
+      }
+      // Perpendicular distance weighs more so the pick is "in line" with
+      // the direction rather than merely off in the general quadrant.
+      const score = primary + perp * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+
+    if (best) {
+      best.focus({ preventScroll: true });
+      best.scrollIntoView({
+        block: "nearest",
+        inline: "center",
+        behavior: "smooth",
+      });
+    }
+  }
 
   const filtered = $derived(
     filter === "All" ? games : games.filter((g) => g.source === filter),
@@ -39,22 +135,6 @@
     if (filtered.length === 0) selected = 0;
     else if (selected >= filtered.length) selected = filtered.length - 1;
   });
-
-  function move(delta: number) {
-    if (filtered.length === 0) return;
-    let next = selected + delta;
-    if (next < 0) next = 0;
-    if (next >= filtered.length) next = filtered.length - 1;
-    if (next === selected) return;
-    selected = next;
-    queueMicrotask(() => {
-      cardEls[selected]?.scrollIntoView({
-        block: "nearest",
-        inline: "center",
-        behavior: "smooth",
-      });
-    });
-  }
 
   async function launch(game: Game | undefined = current) {
     if (!game || launching) return;
@@ -78,24 +158,38 @@
     switch (e.key) {
       case "ArrowLeft":
         e.preventDefault();
-        move(-1);
+        navigate("left");
         break;
       case "ArrowRight":
         e.preventDefault();
-        move(1);
+        navigate("right");
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        navigate("up");
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        navigate("down");
         break;
       case "Home":
         e.preventDefault();
-        selected = 0;
+        cardEls[0]?.focus({ preventScroll: true });
         cardEls[0]?.scrollIntoView({ inline: "center", behavior: "smooth" });
         break;
       case "End":
         e.preventDefault();
-        selected = Math.max(0, filtered.length - 1);
-        cardEls[selected]?.scrollIntoView({ inline: "center", behavior: "smooth" });
+        cardEls[filtered.length - 1]?.focus({ preventScroll: true });
+        cardEls[filtered.length - 1]?.scrollIntoView({
+          inline: "center",
+          behavior: "smooth",
+        });
         break;
       case "Enter":
       case " ":
+        // If a button is focused, let its native click handler run
+        // (card → focus Play; Play → launch).
+        if (e.target instanceof HTMLButtonElement) break;
         e.preventDefault();
         launch();
         break;
@@ -122,9 +216,17 @@
   function formatPlaytime(mins: number | null | undefined): string {
     if (mins == null || mins === 0) return "—";
     if (mins < 60) return `${mins}m`;
-    const h = Math.floor(mins / 60);
+    const totalHours = Math.floor(mins / 60);
     const m = mins % 60;
-    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+    if (totalHours < 24) {
+      return m === 0 ? `${totalHours}h` : `${totalHours}h ${m}m`;
+    }
+    const d = Math.floor(totalHours / 24);
+    const h = totalHours % 24;
+    const parts: string[] = [`${d}d`];
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0) parts.push(`${m}m`);
+    return parts.join(" ");
   }
 
   function initial(name: string) {
@@ -178,6 +280,9 @@
         // Brief pause so the splash's "done" state is seen, then fade out.
         setTimeout(() => {
           scanning = false;
+          // After the main view renders, focus the current card so arrow
+          // keys work immediately.
+          setTimeout(() => cardEls[selected]?.focus({ preventScroll: true }), 80);
         }, 250);
       }),
     );
@@ -201,11 +306,18 @@
     const stopPad = startGamepadLoop({
       onDir: (dir) => {
         if (scanning) return;
-        if (dir === "left") move(-1);
-        else if (dir === "right") move(1);
+        navigate(dir);
       },
       onConfirm: () => {
-        if (!scanning) launch();
+        if (scanning) return;
+        // Confirm = whatever's focused. On a card → click focuses Play;
+        // on Play → launches. On gamepad A with nothing focused, launch.
+        const ae = document.activeElement;
+        if (ae instanceof HTMLButtonElement) {
+          ae.click();
+        } else {
+          launch();
+        }
       },
       onSecondary: () => {
         if (!scanning) openSettings();
@@ -366,6 +478,7 @@
             <button
               class="btn btn-play"
               class:launching
+              bind:this={playBtnEl}
               onclick={() => launch()}
               disabled={launching}
             >
@@ -399,12 +512,12 @@
             {@const cardSrc = resolveAsset(game.coverLocal, game.coverUrl)}
             <button
               class="card"
-              class:selected={i === selected}
               style="--hue: {hueFor(game.id)}"
               bind:this={cardEls[i]}
+              onfocus={() => (selected = i)}
               onclick={() => {
-                if (selected === i) launch(game);
-                else selected = i;
+                selected = i;
+                playBtnEl?.focus();
               }}
               onmouseenter={() => (selected = i)}
               role="option"
@@ -807,6 +920,14 @@
     transform: translateY(-1px);
   }
   .btn:active { transform: translateY(0) scale(0.99); }
+  .btn:focus-visible {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.55);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 0 0 3px rgba(255, 255, 255, 0.1),
+      0 10px 28px rgba(0, 0, 0, 0.28);
+  }
   .btn:disabled { opacity: 0.75; cursor: default; transform: none; }
 
   .btn-play {
@@ -875,6 +996,7 @@
       box-shadow 0.22s ease;
     transform-origin: center center;
   }
+  .card:focus { outline: none; }
   .card:focus-visible { outline: none; }
 
   .card .art {
@@ -926,17 +1048,18 @@
     transition: color 0.2s ease;
   }
 
-  .card.selected {
+  /* Only the focused card is highlighted — TV-style spatial focus. */
+  .card:focus {
     transform: translateY(-8px) scale(1.06);
   }
-  .card.selected .art {
+  .card:focus .art {
     box-shadow:
       0 0 0 2px rgba(255, 255, 255, 0.95),
       0 0 0 5px rgba(255, 255, 255, 0.08),
       0 22px 50px rgba(0, 0, 0, 0.55),
       0 0 30px rgba(255, 255, 255, 0.08);
   }
-  .card.selected .card-name { color: #fff; }
+  .card:focus .card-name { color: #fff; }
 
   /* ========== Loading / empty ========== */
   .loading { display: grid; place-items: center; height: 100vh; }
