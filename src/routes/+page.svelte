@@ -20,6 +20,19 @@
   let menuForGame = $state<Game | null>(null);
   let focusBeforeMenu: HTMLElement | null = null;
 
+  // Splash dismissal state. `readyToShow` lets the main UI mount underneath
+  // the splash so the "fly away" reveals real content. `splashLeaving`
+  // triggers the CSS exit animations.
+  let readyToShow = $state(false);
+  let splashLeaving = $state(false);
+
+  // Reset leaving state whenever a new scan begins (e.g., rescan from Settings)
+  // so the fresh splash doesn't mount already-dismissing.
+  $effect(() => {
+    if (app.scanning) splashLeaving = false;
+  });
+
+
   let cardEls: HTMLButtonElement[] = [];
   let playBtnEl: HTMLButtonElement | undefined = $state();
 
@@ -223,14 +236,22 @@
     unlisteners.push(
       listen<null>("scan:done", async () => {
         await reloadGames();
+        // Mount main UI underneath the still-visible splash so the exit
+        // animation reveals real content.
+        readyToShow = true;
+        // Brief beat so the 100% / "done" state registers, then fly out.
+        setTimeout(() => {
+          splashLeaving = true;
+        }, 150);
+        // After the exit animation completes, unmount the splash entirely.
         setTimeout(() => {
           app.scanning = false;
           setTimeout(() => {
             if (app.page === "home") {
               cardEls[selected]?.focus({ preventScroll: true });
             }
-          }, 80);
-        }, 250);
+          }, 50);
+        }, 150 + 1500);
       }),
     );
     unlisteners.push(
@@ -286,40 +307,7 @@
 
 <svelte:window on:keydown={onKey} />
 
-{#if app.scanning}
-  <!-- ========== Splash ========== -->
-  <div class="splash" role="status" aria-live="polite">
-    <div class="splash-backdrop" aria-hidden="true">
-      <div class="splash-blob a"></div>
-      <div class="splash-blob b"></div>
-      <div class="splash-blob c"></div>
-    </div>
-
-    <div class="splash-panel">
-      <div class="splash-brand">
-        <div class="splash-mark"></div>
-        <div class="splash-title">Games</div>
-        <div class="splash-subtitle">Launcher</div>
-      </div>
-
-      <div class="splash-status">
-        <div class="splash-spinner"></div>
-        <div class="splash-stage">{app.progress.stage}</div>
-        {#if app.progress.total > 0}
-          <div class="splash-count">
-            {app.progress.done} / {app.progress.total}
-          </div>
-          <div class="splash-bar">
-            <div
-              class="splash-bar-fill"
-              style="width: {Math.min(100, (app.progress.done / app.progress.total) * 100)}%"
-            ></div>
-          </div>
-        {/if}
-      </div>
-    </div>
-  </div>
-{:else}
+{#if readyToShow}
   <Sidebar inert={app.menuOpen} />
 
   <main data-nav-zone={app.page} inert={app.menuOpen}>
@@ -506,6 +494,34 @@
   {/if}
 {/if}
 
+{#if app.scanning}
+  <!-- ========== Splash ========== -->
+  <div
+    class="splash"
+    class:splash-leaving={splashLeaving}
+    role="status"
+    aria-live="polite"
+  >
+    <div class="splash-stage">
+      <div class="lockup">
+        <div class="logo-disc">
+          <div class="aura"></div>
+          <img class="logo" src="/app-icon.svg" alt="" draggable="false" />
+        </div>
+      </div>
+
+      <div class="stage-text">
+        <div class="stage-label">{app.progress.stage}</div>
+        {#if app.progress.total > 0}
+          <div class="stage-count">
+            {app.progress.done} / {app.progress.total}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   :global(html),
   :global(body) {
@@ -531,101 +547,104 @@
     z-index: 100;
     display: grid;
     place-items: center;
-    background: #07080f;
+    background: #11121a; /* grayish-black */
+    perspective: 1200px;
+    /* Fade the backdrop after the icon starts its flight so the user
+       sees the icon zooming past a solid plate before the reveal. */
+    transition: opacity 0.75s ease 0.75s;
   }
-  .splash-backdrop {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    z-index: 0;
-    opacity: 0.5;
-    filter: blur(80px);
+  .splash.splash-leaving {
+    opacity: 0;
+    pointer-events: none;
   }
-  .splash-blob {
-    position: absolute;
-    width: 55vw;
-    height: 55vw;
-    border-radius: 50%;
-    mix-blend-mode: screen;
-  }
-  .splash-blob.a {
-    background: radial-gradient(circle, #8b7bff 0%, transparent 65%);
-    left: -10vw; top: -20vw;
-    animation: drift-a 22s ease-in-out infinite alternate;
-  }
-  .splash-blob.b {
-    background: radial-gradient(circle, #1dd3da 0%, transparent 65%);
-    right: -10vw; top: 30vh;
-    animation: drift-b 26s ease-in-out infinite alternate;
-  }
-  .splash-blob.c {
-    background: radial-gradient(circle, #ff6ec7 0%, transparent 60%);
-    left: 25vw; bottom: -20vw;
-    animation: drift-c 30s ease-in-out infinite alternate;
-  }
-  @keyframes drift-a { to { transform: translate(6vw, 4vh) scale(1.1); } }
-  @keyframes drift-b { to { transform: translate(-5vw, -3vh) scale(1.08); } }
-  @keyframes drift-c { to { transform: translate(-4vw, -5vh) scale(1.12); } }
 
-  .splash-panel {
-    position: relative;
-    z-index: 1;
+  .splash-stage {
     display: grid;
     gap: 34px;
-    padding: 40px 48px;
-    border-radius: 24px;
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    place-items: center;
+    transform-style: preserve-3d;
+  }
+
+  .lockup {
+    position: relative;
+    width: 128px;
+    height: 128px;
+    transform-style: preserve-3d;
+    animation: breathe 3.2s ease-in-out infinite;
+  }
+  .splash.splash-leaving .lockup {
+    animation: fly 1.5s cubic-bezier(0.5, 0, 0.75, 0) forwards;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.02); }
+  }
+  @keyframes fly {
+    0%   { transform: scale(1) translateZ(0);      opacity: 1; }
+    100% { transform: scale(4) translateZ(500px);  opacity: 0; }
+  }
+
+  .logo-disc {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    overflow: hidden;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 30px 60px rgba(0, 0, 0, 0.5);
-    min-width: 420px;
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 10px 28px rgba(0, 0, 0, 0.5);
   }
-  .splash-brand { display: flex; align-items: baseline; gap: 14px; }
-  .splash-mark {
-    width: 14px; height: 14px; border-radius: 50%;
-    background: linear-gradient(135deg, #8b7bff, #1dd3da);
-    box-shadow: 0 0 22px rgba(139, 123, 255, 0.7);
-    transform: translateY(3px);
+
+  /* Mostly-white conic gradient with subtle pastel hints, slow spin. */
+  .aura {
+    position: absolute;
+    inset: 0;
+    background: conic-gradient(
+      from 0deg,
+      #ffffff 0%,
+      #ffe4ec 12%,
+      #ffffff 25%,
+      #e0ecff 37%,
+      #ffffff 50%,
+      #e6faea 62%,
+      #ffffff 75%,
+      #fff2dc 87%,
+      #ffffff 100%
+    );
+    animation: auraSpin 18s linear infinite;
   }
-  .splash-title {
-    font-size: 28px; font-weight: 700; letter-spacing: 0.02em;
-    background: linear-gradient(135deg, #fff, #c9c4ff);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-  .splash-subtitle {
-    font-size: 13px; letter-spacing: 0.35em; text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .splash-status {
-    display: grid; gap: 12px;
-    grid-template-columns: auto 1fr auto;
-    align-items: center; row-gap: 14px;
-  }
-  .splash-spinner {
-    width: 22px; height: 22px; border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-top-color: rgba(255, 255, 255, 0.85);
-    animation: spin 0.9s linear infinite;
-  }
-  .splash-stage { font-size: 14px; color: rgba(255, 255, 255, 0.85); }
-  .splash-count {
-    font-size: 12px; font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.55);
-  }
-  .splash-bar {
-    grid-column: 1 / -1;
-    height: 3px; border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07); overflow: hidden;
-  }
-  .splash-bar-fill {
+  @keyframes auraSpin { to { transform: rotate(360deg); } }
+
+  .logo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
     height: 100%;
-    background: linear-gradient(90deg, #8b7bff, #1dd3da);
-    border-radius: inherit;
-    transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    box-shadow: 0 0 16px rgba(139, 123, 255, 0.5);
+    object-fit: contain;
+    padding: 12%;
+    z-index: 1;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  .stage-text {
+    text-align: center;
+    min-height: 36px;
+    transition: opacity 0.22s ease;
+  }
+  .splash.splash-leaving .stage-text { opacity: 0; }
+  .stage-label {
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 500;
+  }
+  .stage-count {
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, 0.35);
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
   }
 
   /* ========== Main layout ========== */
