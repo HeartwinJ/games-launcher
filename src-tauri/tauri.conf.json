@@ -33,13 +33,25 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Heartwin Haveluck",
+    "copyright": "Copyright © 2026 Heartwin Haveluck",
+    "category": "Game",
+    "shortDescription": "Minimal fancy launcher for installed Steam & Epic games",
+    "longDescription": "A controller-friendly Windows launcher that unifies your installed Steam and Epic libraries into one TV-style grid.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

@@ -31,6 +31,14 @@ No account sign-in, no storefront, no clutter. Just your installed games, beauti
 - Smart spatial focus so the highlight always lands where you expect.
 - The sidebar remembers your previous spot when you return to it.
 
+## Install
+
+Grab the latest `Games Launcher_x.y.z_x64-setup.exe` from the [Releases page](../../releases) and run it. The installer is per-user (no admin prompt) and installs to `%LOCALAPPDATA%\Games Launcher`.
+
+**First-run SmartScreen warning.** The installer is unsigned, so Windows will show "Windows protected your PC" the first time you run it. Click **More info → Run anyway** to proceed. This is normal for independent Windows apps without a paid code-signing certificate.
+
+**Requirements.** Windows 10 or 11, x64. WebView2 is bundled and auto-installs on first run if it's missing.
+
 ## Controls
 
 | Input | Action |
