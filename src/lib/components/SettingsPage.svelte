@@ -1,8 +1,52 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { app } from "$lib/state.svelte";
+  import {
+    updater,
+    checkForUpdates,
+    downloadAndInstallPending,
+  } from "$lib/updater.svelte";
 
   let rescanning = $state(false);
+
+  const updateStatus = $derived(updater.status);
+
+  const updateLabel = $derived.by(() => {
+    switch (updateStatus.kind) {
+      case "idle":
+        return "Check for updates";
+      case "checking":
+        return "Checking…";
+      case "upToDate":
+        return "You're up to date";
+      case "available":
+        return `Install v${updateStatus.version}`;
+      case "downloading": {
+        if (!updateStatus.total) return "Downloading…";
+        const pct = Math.floor((updateStatus.downloaded / updateStatus.total) * 100);
+        return `Downloading ${pct}%`;
+      }
+      case "installing":
+        return "Installing…";
+      case "error":
+        return "Retry check";
+    }
+  });
+
+  const updateBusy = $derived(
+    updateStatus.kind === "checking" ||
+      updateStatus.kind === "downloading" ||
+      updateStatus.kind === "installing",
+  );
+
+  async function onUpdateClick() {
+    if (updateBusy) return;
+    if (updateStatus.kind === "available") {
+      await downloadAndInstallPending();
+    } else {
+      await checkForUpdates();
+    }
+  }
 
   async function toggleStore(store: "steam" | "epic") {
     const key = store === "steam" ? "showSteam" : "showEpic";
@@ -167,6 +211,34 @@
         <span>Open data folder</span>
       </button>
     </div>
+  </section>
+
+  <section class="card">
+    <h2>Updates</h2>
+    <p class="muted">Automatic check on launch. You can also check now.</p>
+
+    <div class="actions">
+      <button
+        class="action-btn"
+        onclick={onUpdateClick}
+        disabled={updateBusy || updateStatus.kind === "upToDate"}
+      >
+        <svg viewBox="0 0 24 24" class="icon" aria-hidden="true"
+          fill="none" stroke="currentColor" stroke-width="1.7"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12" />
+          <path d="M7 10l5 5 5-5" />
+          <path d="M5 21h14" />
+        </svg>
+        <span>{updateLabel}</span>
+      </button>
+    </div>
+
+    {#if updateStatus.kind === "available" && updateStatus.notes}
+      <p class="muted notes">{updateStatus.notes}</p>
+    {:else if updateStatus.kind === "error"}
+      <p class="muted notes error">{updateStatus.message}</p>
+    {/if}
   </section>
 
   <section class="card about">
@@ -400,4 +472,14 @@
     font-variant-numeric: tabular-nums;
   }
   .tech { font-size: 12px; }
+
+  .notes {
+    margin-top: 12px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .notes.error {
+    color: rgba(255, 170, 170, 0.75);
+  }
 </style>

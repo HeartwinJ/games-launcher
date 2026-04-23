@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Games Launcher",
+  "productName": "GamesLauncher",
   "version": "0.1.0",
   "identifier": "com.heartwin.gameslauncher",
   "build": {
@@ -51,6 +51,18 @@
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
         "displayLanguageSelector": false
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/HeartwinJ/games-launcher/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5MTcyRjExQjE0RkUwRjcKUldUMzRFK3hFUzhYdWRwWVUxRndFR05OZmIzOE83eXcvVUV2NDRWUS9rWmRUZ0QxeTFsOHNnVnEK",
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

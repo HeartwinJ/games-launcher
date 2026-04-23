@@ -116,13 +116,42 @@ function spatialNearest(
   return best;
 }
 
+/** Nearest ancestor that is an actual horizontal scroll container
+ *  (overflow-x: auto | scroll with real overflow). We deliberately skip
+ *  overflow:hidden ancestors — browsers still treat them as scrollable by
+ *  `scrollIntoView`, which caused the hero content to drift left when the
+ *  carousel had many items. */
+function nearestHScrollContainer(el: HTMLElement): HTMLElement | null {
+  let p = el.parentElement;
+  while (p) {
+    const ox = getComputedStyle(p).overflowX;
+    if ((ox === "auto" || ox === "scroll") && p.scrollWidth > p.clientWidth) {
+      return p;
+    }
+    p = p.parentElement;
+  }
+  return null;
+}
+
 function focusEl(el: HTMLElement) {
   el.focus({ preventScroll: true });
-  el.scrollIntoView({
-    block: "nearest",
-    inline: "center",
-    behavior: "smooth",
-  });
+
+  // Horizontally center the element inside the nearest scroll container only.
+  // This prevents ancestor containers from also trying to "center" the card,
+  // which would push the hero (logo / Play button / stats) off-screen.
+  const hs = nearestHScrollContainer(el);
+  if (hs) {
+    const elRect = el.getBoundingClientRect();
+    const boxRect = hs.getBoundingClientRect();
+    const target =
+      hs.scrollLeft +
+      (elRect.left + elRect.width / 2) -
+      (boxRect.left + boxRect.width / 2);
+    hs.scrollTo({ left: target, behavior: "smooth" });
+  }
+
+  // Vertical: non-centering, only scrolls if off-screen (e.g., settings page).
+  el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
 }
 
 /**

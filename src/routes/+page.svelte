@@ -9,6 +9,7 @@
     Prefs,
   } from "$lib/types";
   import { app, visibleGames } from "$lib/state.svelte";
+  import { checkForUpdates } from "$lib/updater.svelte";
   import { navigate, initNav } from "$lib/nav";
   import { startGamepadLoop } from "$lib/gamepad";
   import Sidebar from "$lib/components/Sidebar.svelte";
@@ -136,16 +137,13 @@
       case "Home":
         if (app.page === "home") {
           e.preventDefault();
-          cardEls[0]?.focus({ preventScroll: true });
-          cardEls[0]?.scrollIntoView({ inline: "center", behavior: "smooth" });
+          focusCard(0);
         }
         break;
       case "End":
         if (app.page === "home") {
           e.preventDefault();
-          const last = cardEls[filtered.length - 1];
-          last?.focus({ preventScroll: true });
-          last?.scrollIntoView({ inline: "center", behavior: "smooth" });
+          focusCard(filtered.length - 1);
         }
         break;
       case "Enter":
@@ -183,6 +181,26 @@
 
   function initial(name: string) {
     return (name.trim()[0] ?? "?").toUpperCase();
+  }
+
+  function focusCard(i: number) {
+    const el = cardEls[i];
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    // Center the card within the carousel only — not within every scrollable
+    // ancestor. nav.ts uses the same approach in focusEl().
+    const carousel = el.closest<HTMLElement>(".carousel");
+    if (carousel) {
+      const elRect = el.getBoundingClientRect();
+      const cRect = carousel.getBoundingClientRect();
+      carousel.scrollTo({
+        left:
+          carousel.scrollLeft +
+          (elRect.left + elRect.width / 2) -
+          (cRect.left + cRect.width / 2),
+        behavior: "smooth",
+      });
+    }
   }
 
   function hueFor(id: string) {
@@ -251,6 +269,9 @@
               cardEls[selected]?.focus({ preventScroll: true });
             }
           }, 50);
+          // Silent background check — the Settings screen reads the status.
+          // Only surfaces on Settings; no disruption to the game grid.
+          checkForUpdates().catch(() => { /* already captured as error state */ });
         }, 150 + 1500);
       }),
     );
