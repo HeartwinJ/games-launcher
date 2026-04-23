@@ -60,7 +60,7 @@
       "endpoints": [
         "https://github.com/HeartwinJ/games-launcher/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5MTcyRjExQjE0RkUwRjcKUldUMzRFK3hFUzhYdWRwWVUxRndFR05OZmIzOE83eXcvVUV2NDRWUS9rWmRUZ0QxeTFsOHNnVnEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI2QjUwQTgyNURFMjExNUUKUldSZUVlSmRnZ3ExdHB0OGpiSG1DR1NXc1poRUJpKzkydk1xR015dExoTXhwbE8xamtsT255KzYK",
       "windows": {
         "installMode": "passive"
       }
