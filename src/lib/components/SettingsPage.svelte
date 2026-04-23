@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { getVersion } from "@tauri-apps/api/app";
   import { app } from "$lib/state.svelte";
   import {
     updater,
@@ -8,6 +9,11 @@
   } from "$lib/updater.svelte";
 
   let rescanning = $state(false);
+  let appVersion = $state("");
+
+  getVersion()
+    .then((v) => (appVersion = v))
+    .catch(() => {});
 
   const updateStatus = $derived(updater.status);
 
@@ -247,7 +253,9 @@
       <div class="brand">
         <span class="brand-dot"></span>
         <span class="brand-title">Games Launcher</span>
-        <span class="brand-version">v0.1.0</span>
+        {#if appVersion}
+          <span class="brand-version">v{appVersion}</span>
+        {/if}
       </div>
       <p class="muted">
         A minimal, controller-friendly launcher that aggregates installed Steam
